@@ -358,11 +358,11 @@
             );
         }
 
-        // Fetch images for current viewport
+        // Fetch images for user and date range (no bbox restriction)
         async function fetchImagesForViewport() {
             const zoom = map.getZoom();
             
-            // Check if zoom level is sufficient
+            // Check if zoom level is sufficient for display
             if (zoom < MIN_ZOOM_FOR_FETCH) {
                 showZoomWarning(true);
                 status('Zoom in to load imagery');
@@ -371,20 +371,9 @@
             
             showZoomWarning(false);
             
-            const bounds = map.getBounds();
-            const area = calculateBBoxArea(bounds);
-            
-            // Check if area is too large
-            if (area > MAX_BBOX_AREA) {
-                showZoomWarning(true);
-                status('Zoom in closer to load imagery');
-                console.log(`Viewport area too large: ${area.toFixed(4)} > ${MAX_BBOX_AREA}`);
-                return;
-            }
-            
-            // Check if we need to refetch
-            if (!shouldRefetch(bounds)) {
-                console.log('Already have images for this area');
+            // Only fetch once since we're getting all images for the user/date range
+            if (lastFetchedBounds !== null) {
+                console.log('Already fetched all images for user and date range');
                 return;
             }
             
@@ -398,15 +387,7 @@
                 status('Loading images...');
                 showProgress(true);
                 
-                const bbox = {
-                    min_lng: bounds.getWest(),
-                    min_lat: bounds.getSouth(),
-                    max_lng: bounds.getEast(),
-                    max_lat: bounds.getNorth()
-                };
-                
-                console.log(`Fetching images for bbox:`, bbox);
-                console.log(`Bbox area: ${area.toFixed(4)} square degrees`);
+                console.log(`Fetching all images for user ${USERNAME} from 2025-09-25 to 2025-09-27`);
                 
                 let allImages = [];
                 let after = null;
@@ -420,13 +401,17 @@
                     url.searchParams.set('access_token', TOKEN);
                     url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at,creator');
                     
-                    const bboxString = `${bbox.min_lng},${bbox.min_lat},${bbox.max_lng},${bbox.max_lat}`;
-                    url.searchParams.set('bbox', bboxString);
-                    
                     // Filter by username
                     url.searchParams.set('creator_username', USERNAME);
                     
+                    // Filter by date range (September 25-27, 2025)
+                    url.searchParams.set('start_captured_at', '2025-09-25T00:00:00Z');
+                    url.searchParams.set('end_captured_at', '2025-09-27T23:59:59Z');
+                    
                     url.searchParams.set('limit', 2000);
+                    if (after) {
+                        url.searchParams.set('after', after);
+                    }
                     if (after) {
                         url.searchParams.set('after', after);
                     }
@@ -435,15 +420,6 @@
                     if (!response.ok) {
                         const errorText = await response.text();
                         console.error(`HTTP ${response.status}: ${errorText}`);
-                        
-                        // Check if it's a bounding box error
-                        if (response.status === 500 && errorText.includes('Bounding box area is too large')) {
-                            showZoomWarning(true);
-                            status('Zoom in closer to load imagery');
-                            showProgress(false);
-                            isFetching = false;
-                            return;
-                        }
                         
                         showError(`API Error (${response.status}): Failed to load imagery data. Would you like to try reloading?`);
                         throw new Error(`HTTP ${response.status}`);
@@ -490,43 +466,64 @@
                 console.log(`Total images fetched: ${totalFetched}`);
                 console.log(`===================\n`);
                 
-                // Merge with existing images (avoid duplicates)
-                const existingIds = new Set(imageData.map(img => img.id));
-                const newImages = allImages.filter(img => !existingIds.has(img.id));
+                // Set all images (no merging needed since we fetch once)
+                imageData = allImages;
                 
-                imageData = [...imageData, ...newImages];
-                
-                console.log(`Added ${newImages.length} new images, total: ${imageData.length}`);
+                console.log(`Loaded ${imageData.length} images`);
                 
                 if (imageData.length === 0) {
-                    status(`No images found in this area`);
+                    status(`No images found for ${USERNAME} in date range`);
                 } else {
                     status(`Loaded ${imageData.length} images`);
                 }
                 
-                lastFetchedBounds = bounds;
+                lastFetchedBounds = true; // Mark as fetched (using boolean instead of bounds object)
                 addImagesToMap();
+                
+                // Fit map to show all points
+                if (imageData.length > 0) {
+                    const coords = imageData
+                        .filter(img => img.geometry && img.geometry.coordinates)
+                        .map(img => img.geometry.coordinates);
+                    
+                    if (coords.length > 0) {
+                        const bounds = coords.reduce((bounds, coord) => {
+                            return bounds.extend(coord);
+                        }, new maplibregl.LngLatBounds(coords[0], coords[0]));
+                        
+                        map.fitBounds(bounds, { padding: 50 });
+                    }
+                }
                 
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
-                if (!err.message.includes('bounding box')) {
-                    showError(`Error loading imagery: ${err.message}. Would you like to try reloading? You can also load Mapillary directly, using the button at the bottom left of the screen.`);
-                }
+                showError(`Error loading imagery: ${err.message}. Would you like to try reloading? You can also load Mapillary directly, using the button at the bottom left of the screen.`);
             } finally {
                 isFetching = false;
             }
         }
 
-        // Debounced fetch on map move
+        // Debounced fetch on map move (will only fetch once since we get all images)
         function onMapMove() {
-            if (fetchTimeout) {
-                clearTimeout(fetchTimeout);
+            // Check zoom level to show/hide warning
+            const zoom = map.getZoom();
+            if (zoom < MIN_ZOOM_FOR_FETCH) {
+                showZoomWarning(true);
+            } else {
+                showZoomWarning(false);
             }
             
-            fetchTimeout = setTimeout(() => {
-                fetchImagesForViewport();
-            }, 500); // Wait 500ms after user stops moving the map
+            // Try to fetch if we haven't already
+            if (lastFetchedBounds === null) {
+                if (fetchTimeout) {
+                    clearTimeout(fetchTimeout);
+                }
+                
+                fetchTimeout = setTimeout(() => {
+                    fetchImagesForViewport();
+                }, 500);
+            }
         }
 
         // Add images to map as GeoJSON
