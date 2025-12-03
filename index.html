@@ -418,10 +418,13 @@
                 while (true) {
                     const url = new URL('https://graph.mapillary.com/images');
                     url.searchParams.set('access_token', TOKEN);
-                    url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
+                    url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at,creator');
                     
                     const bboxString = `${bbox.min_lng},${bbox.min_lat},${bbox.max_lng},${bbox.max_lat}`;
                     url.searchParams.set('bbox', bboxString);
+                    
+                    // Filter by username
+                    url.searchParams.set('creator_username', USERNAME);
                     
                     url.searchParams.set('limit', 2000);
                     if (after) {
