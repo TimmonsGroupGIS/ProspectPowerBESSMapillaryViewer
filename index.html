@@ -163,22 +163,6 @@
             width: 35px;
             height: 35px;
         }
-        #zoom-warning {
-            position: absolute;
-            bottom: 60px;
-            left: 10px;
-            background: rgba(255, 193, 7, 0.95);
-            color: #000;
-            padding: 10px 16px;
-            border-radius: 6px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-            z-index: 1000;
-            font-size: 13px;
-            display: none;
-        }
-        #zoom-warning.visible {
-            display: block;
-        }
     </style>
 </head>
 <body>
@@ -196,9 +180,6 @@
                 <img src="https://play-lh.googleusercontent.com/z3qzEc13E2sDWky9LgqADojcdy8hrX_szuAAeX21k_dFe7GNXLIYXJtOu5RcE3_5Jz8" alt="Mapillary">
                 Open Timmons Prospect Power BESS Mapillary Data Directly
             </button>
-            <div id="zoom-warning">
-                ⚠️ Zoom in closer to load imagery
-            </div>
         </div>
         <div id="map"></div>
     </div>
@@ -217,15 +198,11 @@
         const START_ID = '1878629616050462';
         const USERNAME = 'vukmercd23';
         
-        // INITIAL CENTER POINT - Start with a smaller area
+        // INITIAL CENTER POINT
         const INITIAL_CENTER = {
             lng: -78.6988,  // Center longitude
             lat: 38.6111    // Center latitude
         };
-        
-        // CONFIGURATION
-        const MIN_ZOOM_FOR_FETCH = 14;  // Don't fetch images if zoomed out beyond this
-        const MAX_BBOX_AREA = 0.009;    // Maximum area in square degrees (slightly under API limit of 0.010)
         
         let imageData = [];
         let isUpdatingFromViewer = false;
@@ -264,15 +241,6 @@
         
         const hideError = () => {
             document.getElementById('error-container').classList.remove('visible');
-        };
-        
-        const showZoomWarning = (show) => {
-            const warning = document.getElementById('zoom-warning');
-            if (show) {
-                warning.classList.add('visible');
-            } else {
-                warning.classList.remove('visible');
-            }
         };
         
         // Error dialog button handlers
@@ -320,57 +288,8 @@
             zoom: 15
         });
 
-        // Calculate bounding box area in square degrees
-        function calculateBBoxArea(bounds) {
-            const width = bounds.getEast() - bounds.getWest();
-            const height = bounds.getNorth() - bounds.getSouth();
-            return width * height;
-        }
-
-        // Check if we need to refetch based on map movement
-        function shouldRefetch(currentBounds) {
-            if (!lastFetchedBounds) return true;
-            
-            // Check if current view extends beyond last fetched bounds
-            const current = {
-                north: currentBounds.getNorth(),
-                south: currentBounds.getSouth(),
-                east: currentBounds.getEast(),
-                west: currentBounds.getWest()
-            };
-            
-            const last = {
-                north: lastFetchedBounds.getNorth(),
-                south: lastFetchedBounds.getSouth(),
-                east: lastFetchedBounds.getEast(),
-                west: lastFetchedBounds.getWest()
-            };
-            
-            // Refetch if we've moved 50% outside the previous bounds
-            const marginLat = (last.north - last.south) * 0.5;
-            const marginLng = (last.east - last.west) * 0.5;
-            
-            return (
-                current.north > last.north + marginLat ||
-                current.south < last.south - marginLat ||
-                current.east > last.east + marginLng ||
-                current.west < last.west - marginLng
-            );
-        }
-
         // Fetch images for user and date range (no bbox restriction)
         async function fetchImagesForViewport() {
-            const zoom = map.getZoom();
-            
-            // Check if zoom level is sufficient for display
-            if (zoom < MIN_ZOOM_FOR_FETCH) {
-                showZoomWarning(true);
-                status('Zoom in to load imagery');
-                return;
-            }
-            
-            showZoomWarning(false);
-            
             // Only fetch once since we're getting all images for the user/date range
             if (lastFetchedBounds !== null) {
                 console.log('Already fetched all images for user and date range');
@@ -506,14 +425,6 @@
 
         // Debounced fetch on map move (will only fetch once since we get all images)
         function onMapMove() {
-            // Check zoom level to show/hide warning
-            const zoom = map.getZoom();
-            if (zoom < MIN_ZOOM_FOR_FETCH) {
-                showZoomWarning(true);
-            } else {
-                showZoomWarning(false);
-            }
-            
             // Try to fetch if we haven't already
             if (lastFetchedBounds === null) {
                 if (fetchTimeout) {
